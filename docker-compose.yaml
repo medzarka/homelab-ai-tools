@@ -6,7 +6,7 @@ services:
     image: alpine:latest
     container_name: compute_tools_ramdisk_init
     user: "0:0"
-    restart: "no"
+    restart: unless-stopped
     network_mode: none
     volumes:
       - ${RAMDISK_DIR:-/mnt/ramdisk}:/ramdisk
@@ -27,7 +27,14 @@ services:
         echo "  limiter: false" >> /ramdisk/searxng/settings.yml
         echo "  image_proxy: true" >> /ramdisk/searxng/settings.yml
         chmod 666 /ramdisk/searxng/settings.yml
-        echo ">>> [Tools RAMDisk Init] RAM-disk initialization complete."
+        echo ">>> [Tools RAMDisk Init] RAM-disk initialization complete. Storage guard active."
+        sleep infinity
+    healthcheck:
+      test: ["CMD-SHELL", "test -d /ramdisk/ollama && test -d /ramdisk/searxng || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
 
   # ========================================================
   # OLLAMA (Local AI Vision & Chat Engine in RAM)
@@ -38,7 +45,7 @@ services:
     restart: unless-stopped
     depends_on:
       tools-ramdisk-init:
-        condition: service_completed_successfully
+        condition: service_healthy
     volumes:
       - ${RAMDISK_DIR:-/mnt/ramdisk}/ollama:/root/.ollama
     environment:
@@ -100,7 +107,7 @@ services:
     restart: unless-stopped
     depends_on:
       tools-ramdisk-init:
-        condition: service_completed_successfully
+        condition: service_healthy
     volumes:
       - ${RAMDISK_DIR:-/mnt/ramdisk}/onlyoffice/data:/var/lib/onlyoffice
       - ${RAMDISK_DIR:-/mnt/ramdisk}/onlyoffice/log:/var/log/onlyoffice
@@ -138,7 +145,7 @@ services:
     restart: unless-stopped
     depends_on:
       tools-ramdisk-init:
-        condition: service_completed_successfully
+        condition: service_healthy
     volumes:
       - ${RAMDISK_DIR:-/mnt/ramdisk}/searxng:/etc/searxng
     environment:
@@ -166,7 +173,7 @@ services:
     restart: unless-stopped
     depends_on:
       tools-ramdisk-init:
-        condition: service_completed_successfully
+        condition: service_healthy
     environment:
       POSTGRES_USER: ${NUQ_USER:-nuq_user}
       POSTGRES_PASSWORD: ${NUQ_PASSWORD:-nuq_password}
@@ -187,7 +194,7 @@ services:
     restart: unless-stopped
     depends_on:
       tools-ramdisk-init:
-        condition: service_completed_successfully
+        condition: service_healthy
     volumes:
       - ${RAMDISK_DIR:-/mnt/ramdisk}/firecrawl/redis:/data
     networks:
@@ -204,7 +211,7 @@ services:
     restart: unless-stopped
     depends_on:
       tools-ramdisk-init:
-        condition: service_completed_successfully
+        condition: service_healthy
     environment:
       RABBITMQ_DEFAULT_USER: ${NUQ_USER:-nuq_user}
       RABBITMQ_DEFAULT_PASS: ${NUQ_PASSWORD:-nuq_password}
@@ -300,7 +307,7 @@ services:
     restart: unless-stopped
     depends_on:
       tools-ramdisk-init:
-        condition: service_completed_successfully
+        condition: service_healthy
     volumes:
       - ${RAMDISK_DIR:-/mnt/ramdisk}/speaches:/home/speaches/.cache
     environment:
@@ -334,7 +341,7 @@ services:
     restart: unless-stopped
     depends_on:
       tools-ramdisk-init:
-        condition: service_completed_successfully
+        condition: service_healthy
     command: ["--model-id", "BAAI/bge-m3", "--auto-truncate", "--api-key", "${TEI_API_KEY:-}"]
     volumes:
       - ${RAMDISK_DIR:-/mnt/ramdisk}/tei-embed:/data
@@ -362,7 +369,7 @@ services:
     restart: unless-stopped
     depends_on:
       tools-ramdisk-init:
-        condition: service_completed_successfully
+        condition: service_healthy
     command: ["--model-id", "BAAI/bge-reranker-v2-m3", "--auto-truncate", "--api-key", "${TEI_API_KEY:-}"]
     volumes:
       - ${RAMDISK_DIR:-/mnt/ramdisk}/tei-rerank:/data
