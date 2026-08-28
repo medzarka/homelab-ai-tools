@@ -1,0 +1,389 @@
+services:
+  # ========================================================
+  # RAMDISK STORAGE INITIALIZER (Permissions & Directories)
+  # ========================================================
+  tools-ramdisk-init:
+    image: alpine:latest
+    container_name: compute_tools_ramdisk_init
+    user: "0:0"
+    restart: "no"
+    network_mode: none
+    volumes:
+      - ${RAMDISK_DIR:-/mnt/ramdisk}:/ramdisk
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo ">>> [Tools RAMDisk Init] Creating ephemeral service directories in RAM..."
+        mkdir -p /ramdisk/ollama /ramdisk/onlyoffice/data /ramdisk/onlyoffice/log /ramdisk/searxng /ramdisk/firecrawl/postgres /ramdisk/firecrawl/redis /ramdisk/firecrawl/rabbitmq /ramdisk/speaches /ramdisk/tei-embed /ramdisk/tei-rerank
+        chmod -R 777 /ramdisk
+        echo "use_default_settings: true" > /ramdisk/searxng/settings.yml
+        echo "search:" >> /ramdisk/searxng/settings.yml
+        echo "  autocomplete: google" >> /ramdisk/searxng/settings.yml
+        echo "  formats: [html, json]" >> /ramdisk/searxng/settings.yml
+        echo "server:" >> /ramdisk/searxng/settings.yml
+        echo "  port: 8080" >> /ramdisk/searxng/settings.yml
+        echo "  bind_address: 0.0.0.0" >> /ramdisk/searxng/settings.yml
+        echo "  secret_key: homelab_searxng_secret_key_change_me" >> /ramdisk/searxng/settings.yml
+        echo "  limiter: false" >> /ramdisk/searxng/settings.yml
+        echo "  image_proxy: true" >> /ramdisk/searxng/settings.yml
+        chmod 666 /ramdisk/searxng/settings.yml
+        echo ">>> [Tools RAMDisk Init] RAM-disk initialization complete."
+
+  # ========================================================
+  # OLLAMA (Local AI Vision & Chat Engine in RAM)
+  # ========================================================
+  ollama:
+    image: ollama/ollama:latest
+    container_name: compute_ollama
+    restart: unless-stopped
+    depends_on:
+      tools-ramdisk-init:
+        condition: service_completed_successfully
+    volumes:
+      - ${RAMDISK_DIR:-/mnt/ramdisk}/ollama:/root/.ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0:11434
+      - OLLAMA_NUM_PARALLEL=${OLLAMA_NUM_PARALLEL:-1}
+      - OLLAMA_MAX_LOADED_MODELS=${OLLAMA_MAX_LOADED_MODELS:-2}
+      - OLLAMA_KEEP_ALIVE=${OLLAMA_KEEP_ALIVE:-24h}
+      - OMP_NUM_THREADS=${OMP_NUM_THREADS:-12}
+    ports:
+      - "11434:11434"
+    networks:
+      - shared_net
+      - homelab_swarm_net
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ========================================================
+  # OLLAMA BOOTSTRAP (Auto-Pulls Models into RAM on Boot)
+  # ========================================================
+  ollama-init:
+    image: alpine:latest
+    container_name: compute_ollama_init
+    restart: "no"
+    depends_on:
+      ollama:
+        condition: service_healthy
+    networks:
+      - shared_net
+    environment:
+      - OLLAMA_INIT_MODELS=${OLLAMA_INIT_MODELS:-qwen2.5vl:3b,hermes3:8b}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        apk add --no-cache curl >/dev/null 2>&1
+        echo ">>> [Ollama Init] Checking configured models: $${OLLAMA_INIT_MODELS}..."
+        IFS=','
+        for model in $${OLLAMA_INIT_MODELS}; do
+          echo ">>> [Ollama Init] Ensuring model '$$model' is loaded into RAM..."
+          curl -s -X POST http://compute_ollama:11434/api/pull -d "{\"name\": \"$$model\", \"stream\": false}" >/dev/null 2>&1 || true
+          echo ">>> [Ollama Init] Model '$$model' verified in RAM."
+        done
+        echo ">>> [Ollama Init] All required AI models are warm and ready in RAM."
+
+  # ========================================================
+  # ONLYOFFICE DOCUMENT SERVER (Single-User Lean Edition)
+  # ========================================================
+  onlyoffice:
+    image: onlyoffice/documentserver:latest
+    container_name: compute_onlyoffice
+    restart: unless-stopped
+    depends_on:
+      tools-ramdisk-init:
+        condition: service_completed_successfully
+    volumes:
+      - ${RAMDISK_DIR:-/mnt/ramdisk}/onlyoffice/data:/var/lib/onlyoffice
+      - ${RAMDISK_DIR:-/mnt/ramdisk}/onlyoffice/log:/var/log/onlyoffice
+    environment:
+      - JWT_ENABLED=true
+      - JWT_SECRET=${ONLYOFFICE_JWT_SECRET:-4289cb7b0722e1b1dd47d7c6fb5b08e5c46e3ea40fa3d9cb910901e18d6e3260}
+      - JWT_HEADER=Authorization
+      - JWT_IN_BODY=true
+      - USE_UNAUTHORIZED_STORAGE=true
+      - WOPI_ENABLED=false
+      - PRODUCT_NAME=OnlyOffice Homelab
+    ports:
+      - "8080:80"
+    networks:
+      - shared_net
+      - homelab_swarm_net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1/healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 45s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ========================================================
+  # SEARXNG (Private Metasearch Engine in RAM)
+  # ========================================================
+  searxng:
+    image: searxng/searxng:latest
+    container_name: compute_searxng
+    restart: unless-stopped
+    depends_on:
+      tools-ramdisk-init:
+        condition: service_completed_successfully
+    volumes:
+      - ${RAMDISK_DIR:-/mnt/ramdisk}/searxng:/etc/searxng
+    environment:
+      - SEARXNG_BASE_URL=http://compute_searxng:8080/
+      - SEARXNG_SECRET=${SEARXNG_SECRET:-e3a1f89c42b07e5d8a9f0c1b2d3e4f5a}
+      - UWSGI_WORKERS=4
+      - UWSGI_THREADS=4
+    ports:
+      - "8085:8080"
+    networks:
+      - shared_net
+      - homelab_swarm_net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ========================================================
+  # FIRECRAWL STACK (Web Scraper & Crawler in RAM)
+  # ========================================================
+  firecrawl-postgres:
+    image: postgres:16-alpine
+    container_name: compute_firecrawl_postgres
+    restart: unless-stopped
+    depends_on:
+      tools-ramdisk-init:
+        condition: service_completed_successfully
+    environment:
+      POSTGRES_USER: nuq_user
+      POSTGRES_PASSWORD: nuq_password
+      POSTGRES_DB: nuq_db
+    volumes:
+      - ${RAMDISK_DIR:-/mnt/ramdisk}/firecrawl/postgres:/var/lib/postgresql/data
+    networks:
+      - shared_net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  firecrawl-redis:
+    image: redis:alpine
+    container_name: compute_firecrawl_redis
+    restart: unless-stopped
+    depends_on:
+      tools-ramdisk-init:
+        condition: service_completed_successfully
+    volumes:
+      - ${RAMDISK_DIR:-/mnt/ramdisk}/firecrawl/redis:/data
+    networks:
+      - shared_net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  firecrawl-rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: compute_firecrawl_rabbitmq
+    restart: unless-stopped
+    depends_on:
+      tools-ramdisk-init:
+        condition: service_completed_successfully
+    environment:
+      RABBITMQ_DEFAULT_USER: nuq_user
+      RABBITMQ_DEFAULT_PASS: nuq_password
+    volumes:
+      - ${RAMDISK_DIR:-/mnt/ramdisk}/firecrawl/rabbitmq:/var/lib/rabbitmq
+    networks:
+      - shared_net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  firecrawl-playwright:
+    image: ghcr.io/firecrawl/playwright-service:latest
+    container_name: compute_firecrawl_playwright
+    restart: unless-stopped
+    environment:
+      - PORT=3000
+    networks:
+      - shared_net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  firecrawl-api:
+    image: ghcr.io/firecrawl/firecrawl:latest
+    container_name: compute_firecrawl_api
+    restart: unless-stopped
+    command: ["node", "dist/src/index.js"]
+    ports:
+      - "3038:3036"
+    environment:
+      - PORT=3036
+      - HOST=0.0.0.0
+      - REDIS_URL=redis://compute_firecrawl_redis:6379
+      - REDIS_RATE_LIMIT_URL=redis://compute_firecrawl_redis:6379
+      - PLAYWRIGHT_MICROSERVICE_URL=http://compute_firecrawl_playwright:3000/scrape
+      - USE_PLAYWRIGHT=true
+      - FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY:-firecrawl_secret_api_key_12345}
+      - NUQ_DATABASE_URL=postgresql://nuq_user:nuq_password@compute_firecrawl_postgres:5432/nuq_db
+      - NUQ_RABBITMQ_URL=amqp://nuq_user:nuq_password@compute_firecrawl_rabbitmq:5672/
+    depends_on:
+      - firecrawl-redis
+      - firecrawl-playwright
+      - firecrawl-postgres
+      - firecrawl-rabbitmq
+    networks:
+      - shared_net
+      - homelab_swarm_net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  firecrawl-worker:
+    image: ghcr.io/firecrawl/firecrawl:latest
+    container_name: compute_firecrawl_worker
+    restart: unless-stopped
+    command: ["node", "dist/src/services/queue-worker.js"]
+    environment:
+      - REDIS_URL=redis://compute_firecrawl_redis:6379
+      - REDIS_RATE_LIMIT_URL=redis://compute_firecrawl_redis:6379
+      - PLAYWRIGHT_MICROSERVICE_URL=http://compute_firecrawl_playwright:3000/scrape
+      - USE_PLAYWRIGHT=true
+      - NUM_WORKERS_PER_QUEUE=2
+      - NUQ_DATABASE_URL=postgresql://nuq_user:nuq_password@compute_firecrawl_postgres:5432/nuq_db
+      - NUQ_RABBITMQ_URL=amqp://nuq_user:nuq_password@compute_firecrawl_rabbitmq:5672/
+    depends_on:
+      - firecrawl-redis
+      - firecrawl-playwright
+      - firecrawl-postgres
+      - firecrawl-rabbitmq
+    networks:
+      - shared_net
+      - homelab_swarm_net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ========================================================
+  # SPEACHES (Unified OpenAI-Compatible STT & TTS in RAM)
+  # Faster-Whisper + Kokoro-82M on 23 Cores
+  # ========================================================
+  speaches:
+    image: ghcr.io/speaches-ai/speaches:latest-cpu
+    container_name: compute_speaches
+    restart: unless-stopped
+    depends_on:
+      tools-ramdisk-init:
+        condition: service_completed_successfully
+    volumes:
+      - ${RAMDISK_DIR:-/mnt/ramdisk}/speaches:/home/speaches/.cache
+    environment:
+      - API_KEY=${SPEACHES_API_KEY:-}
+      - WHISPER__MODEL=Systran/faster-whisper-large-v3
+      - WHISPER__DEVICE=cpu
+      - WHISPER__COMPUTE_TYPE=int8
+      - WHISPER__CPU_THREADS=${WHISPER_CPU_THREADS:-8}
+      - KOKORO__DEVICE=cpu
+      - LOOPBACK_HOST_URL=http://localhost:8000
+      - OMP_NUM_THREADS=${OMP_NUM_THREADS:-12}
+      - RAYON_NUM_THREADS=${RAYON_NUM_THREADS:-12}
+    ports:
+      - "8086:8000"
+    networks:
+      - shared_net
+      - homelab_swarm_net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ========================================================
+  # HUGGING FACE TEI (Text Embeddings Inference)
+  # Ultra-fast Rust engine for Qwen/Qwen3-Embedding-0.6B
+  # ========================================================
+  embeddings:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.6
+    container_name: compute_embeddings
+    restart: unless-stopped
+    depends_on:
+      tools-ramdisk-init:
+        condition: service_completed_successfully
+    command: ["--model-id", "BAAI/bge-m3", "--auto-truncate", "--api-key", "${TEI_API_KEY:-}"]
+    volumes:
+      - ${RAMDISK_DIR:-/mnt/ramdisk}/tei-embed:/data
+    environment:
+      - OMP_NUM_THREADS=${OMP_NUM_THREADS:-12}
+      - RAYON_NUM_THREADS=${RAYON_NUM_THREADS:-12}
+    ports:
+      - "8089:80"
+    networks:
+      - shared_net
+      - homelab_swarm_net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ========================================================
+  # HUGGING FACE TEI (Cross-Encoder Reranker Inference)
+  # Ultra-fast Rust engine for BAAI/bge-reranker-v2-m3
+  # ========================================================
+  reranker:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.6
+    container_name: compute_reranker
+    restart: unless-stopped
+    depends_on:
+      tools-ramdisk-init:
+        condition: service_completed_successfully
+    command: ["--model-id", "BAAI/bge-reranker-v2-m3", "--auto-truncate", "--api-key", "${TEI_API_KEY:-}"]
+    volumes:
+      - ${RAMDISK_DIR:-/mnt/ramdisk}/tei-rerank:/data
+    environment:
+      - OMP_NUM_THREADS=${OMP_NUM_THREADS:-12}
+      - RAYON_NUM_THREADS=${RAYON_NUM_THREADS:-12}
+    ports:
+      - "8087:80"
+    networks:
+      - shared_net
+      - homelab_swarm_net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  shared_net:
+    external: true
+    name: ${SHARED_NETWORK:-shared_net}
+  homelab_swarm_net:
+    external: true
+    name: ${SWARM_NETWORK:-homelab_swarm_net}
