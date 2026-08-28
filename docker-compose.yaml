@@ -23,7 +23,7 @@ services:
         echo "server:" >> /ramdisk/searxng/settings.yml
         echo "  port: 8080" >> /ramdisk/searxng/settings.yml
         echo "  bind_address: 0.0.0.0" >> /ramdisk/searxng/settings.yml
-        echo "  secret_key: homelab_searxng_secret_key_change_me" >> /ramdisk/searxng/settings.yml
+        echo "  secret_key: $${SEARXNG_SECRET:-e3a1f89c42b07e5d8a9f0c1b2d3e4f5a}" >> /ramdisk/searxng/settings.yml
         echo "  limiter: false" >> /ramdisk/searxng/settings.yml
         echo "  image_proxy: true" >> /ramdisk/searxng/settings.yml
         chmod 666 /ramdisk/searxng/settings.yml
@@ -168,9 +168,9 @@ services:
       tools-ramdisk-init:
         condition: service_completed_successfully
     environment:
-      POSTGRES_USER: nuq_user
-      POSTGRES_PASSWORD: nuq_password
-      POSTGRES_DB: nuq_db
+      POSTGRES_USER: ${NUQ_USER:-nuq_user}
+      POSTGRES_PASSWORD: ${NUQ_PASSWORD:-nuq_password}
+      POSTGRES_DB: ${NUQ_DB:-nuq_db}
     volumes:
       - ${RAMDISK_DIR:-/mnt/ramdisk}/firecrawl/postgres:/var/lib/postgresql/data
     networks:
@@ -206,8 +206,8 @@ services:
       tools-ramdisk-init:
         condition: service_completed_successfully
     environment:
-      RABBITMQ_DEFAULT_USER: nuq_user
-      RABBITMQ_DEFAULT_PASS: nuq_password
+      RABBITMQ_DEFAULT_USER: ${NUQ_USER:-nuq_user}
+      RABBITMQ_DEFAULT_PASS: ${NUQ_PASSWORD:-nuq_password}
     volumes:
       - ${RAMDISK_DIR:-/mnt/ramdisk}/firecrawl/rabbitmq:/var/lib/rabbitmq
     networks:
@@ -247,8 +247,8 @@ services:
       - PLAYWRIGHT_MICROSERVICE_URL=http://compute_firecrawl_playwright:3000/scrape
       - USE_PLAYWRIGHT=true
       - FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY:-firecrawl_secret_api_key_12345}
-      - NUQ_DATABASE_URL=postgresql://nuq_user:nuq_password@compute_firecrawl_postgres:5432/nuq_db
-      - NUQ_RABBITMQ_URL=amqp://nuq_user:nuq_password@compute_firecrawl_rabbitmq:5672/
+      - NUQ_DATABASE_URL=postgresql://${NUQ_USER:-nuq_user}:${NUQ_PASSWORD:-nuq_password}@compute_firecrawl_postgres:5432/${NUQ_DB:-nuq_db}
+      - NUQ_RABBITMQ_URL=amqp://${NUQ_USER:-nuq_user}:${NUQ_PASSWORD:-nuq_password}@compute_firecrawl_rabbitmq:5672/
     depends_on:
       - firecrawl-redis
       - firecrawl-playwright
@@ -274,8 +274,8 @@ services:
       - PLAYWRIGHT_MICROSERVICE_URL=http://compute_firecrawl_playwright:3000/scrape
       - USE_PLAYWRIGHT=true
       - NUM_WORKERS_PER_QUEUE=2
-      - NUQ_DATABASE_URL=postgresql://nuq_user:nuq_password@compute_firecrawl_postgres:5432/nuq_db
-      - NUQ_RABBITMQ_URL=amqp://nuq_user:nuq_password@compute_firecrawl_rabbitmq:5672/
+      - NUQ_DATABASE_URL=postgresql://${NUQ_USER:-nuq_user}:${NUQ_PASSWORD:-nuq_password}@compute_firecrawl_postgres:5432/${NUQ_DB:-nuq_db}
+      - NUQ_RABBITMQ_URL=amqp://${NUQ_USER:-nuq_user}:${NUQ_PASSWORD:-nuq_password}@compute_firecrawl_rabbitmq:5672/
     depends_on:
       - firecrawl-redis
       - firecrawl-playwright
