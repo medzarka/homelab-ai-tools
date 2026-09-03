@@ -1,36 +1,36 @@
 services:
   # ========================================================
-  # RAMDISK STORAGE INITIALIZER (Permissions & Directories)
+  # WORKSPACE STORAGE INITIALIZER (zap-srv & oci01-flex)
   # ========================================================
-  tools-ramdisk-init:
+  tools-workspace-init:
     image: alpine:latest
-    container_name: compute_tools_ramdisk_init
+    container_name: compute_tools_workspace_init
     user: "0:0"
     restart: unless-stopped
     network_mode: none
     volumes:
-      - ${RAMDISK_DIR:-/mnt/ramdisk}:/ramdisk
+      - ${WORKSPACE_DIR:-/srv/data/workspace}:/workspace
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
-        echo ">>> [Tools RAMDisk Init] Creating ephemeral service directories in RAM..."
-        mkdir -p /ramdisk/ollama /ramdisk/onlyoffice/data /ramdisk/onlyoffice/log /ramdisk/searxng /ramdisk/firecrawl/postgres /ramdisk/firecrawl/redis /ramdisk/firecrawl/rabbitmq /ramdisk/speaches /ramdisk/tei-embed /ramdisk/tei-rerank
-        chmod -R 777 /ramdisk
-        echo "use_default_settings: true" > /ramdisk/searxng/settings.yml
-        echo "search:" >> /ramdisk/searxng/settings.yml
-        echo "  autocomplete: google" >> /ramdisk/searxng/settings.yml
-        echo "  formats: [html, json]" >> /ramdisk/searxng/settings.yml
-        echo "server:" >> /ramdisk/searxng/settings.yml
-        echo "  port: 8080" >> /ramdisk/searxng/settings.yml
-        echo "  bind_address: 0.0.0.0" >> /ramdisk/searxng/settings.yml
-        echo "  secret_key: $${SEARXNG_SECRET:-e3a1f89c42b07e5d8a9f0c1b2d3e4f5a}" >> /ramdisk/searxng/settings.yml
-        echo "  limiter: false" >> /ramdisk/searxng/settings.yml
-        echo "  image_proxy: true" >> /ramdisk/searxng/settings.yml
-        chmod 666 /ramdisk/searxng/settings.yml
-        echo ">>> [Tools RAMDisk Init] RAM-disk initialization complete. Storage guard active."
+        echo ">>> [Tools Workspace Init] Preparing service directories in ${WORKSPACE_DIR:-/srv/data/workspace}..."
+        mkdir -p /workspace/ollama /workspace/onlyoffice/data /workspace/onlyoffice/log /workspace/searxng /workspace/firecrawl/postgres /workspace/firecrawl/redis /workspace/firecrawl/rabbitmq /workspace/speaches /workspace/tei-embed /workspace/tei-rerank
+        chmod -R 777 /workspace
+        echo "use_default_settings: true" > /workspace/searxng/settings.yml
+        echo "search:" >> /workspace/searxng/settings.yml
+        echo "  autocomplete: google" >> /workspace/searxng/settings.yml
+        echo "  formats: [html, json]" >> /workspace/searxng/settings.yml
+        echo "server:" >> /workspace/searxng/settings.yml
+        echo "  port: 8080" >> /workspace/searxng/settings.yml
+        echo "  bind_address: 0.0.0.0" >> /workspace/searxng/settings.yml
+        echo "  secret_key: $${SEARXNG_SECRET:-e3a1f89c42b07e5d8a9f0c1b2d3e4f5a}" >> /workspace/searxng/settings.yml
+        echo "  limiter: false" >> /workspace/searxng/settings.yml
+        echo "  image_proxy: true" >> /workspace/searxng/settings.yml
+        chmod 666 /workspace/searxng/settings.yml
+        echo ">>> [Tools Workspace Init] Storage initialization complete. Guard active."
         sleep infinity
     healthcheck:
-      test: ["CMD-SHELL", "test -d /ramdisk/ollama && test -d /ramdisk/searxng || exit 1"]
+      test: ["CMD-SHELL", "test -d /workspace/ollama && test -d /workspace/searxng || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -44,10 +44,10 @@ services:
     container_name: compute_ollama
     restart: unless-stopped
     depends_on:
-      tools-ramdisk-init:
+      tools-workspace-init:
         condition: service_healthy
     volumes:
-      - ${RAMDISK_DIR:-/mnt/ramdisk}/ollama:/root/.ollama
+      - ${WORKSPACE_DIR:-/srv/data/workspace}/ollama:/root/.ollama
     environment:
       - OLLAMA_HOST=0.0.0.0:11434
       - OLLAMA_NUM_PARALLEL=${OLLAMA_NUM_PARALLEL:-1}
@@ -114,11 +114,11 @@ services:
     container_name: compute_onlyoffice
     restart: unless-stopped
     depends_on:
-      tools-ramdisk-init:
+      tools-workspace-init:
         condition: service_healthy
     volumes:
-      - ${RAMDISK_DIR:-/mnt/ramdisk}/onlyoffice/data:/var/lib/onlyoffice
-      - ${RAMDISK_DIR:-/mnt/ramdisk}/onlyoffice/log:/var/log/onlyoffice
+      - ${WORKSPACE_DIR:-/srv/data/workspace}/onlyoffice/data:/var/lib/onlyoffice
+      - ${WORKSPACE_DIR:-/srv/data/workspace}/onlyoffice/log:/var/log/onlyoffice
     environment:
       - JWT_ENABLED=true
       - JWT_SECRET=${ONLYOFFICE_JWT_SECRET:-4289cb7b0722e1b1dd47d7c6fb5b08e5c46e3ea40fa3d9cb910901e18d6e3260}
@@ -160,10 +160,10 @@ services:
     container_name: compute_searxng
     restart: unless-stopped
     depends_on:
-      tools-ramdisk-init:
+      tools-workspace-init:
         condition: service_healthy
     volumes:
-      - ${RAMDISK_DIR:-/mnt/ramdisk}/searxng:/etc/searxng
+      - ${WORKSPACE_DIR:-/srv/data/workspace}/searxng:/etc/searxng
     environment:
       - SEARXNG_BASE_URL=http://compute_searxng:8080/
       - SEARXNG_SECRET=${SEARXNG_SECRET:-e3a1f89c42b07e5d8a9f0c1b2d3e4f5a}
@@ -196,14 +196,14 @@ services:
     container_name: compute_firecrawl_postgres
     restart: unless-stopped
     depends_on:
-      tools-ramdisk-init:
+      tools-workspace-init:
         condition: service_healthy
     environment:
       POSTGRES_USER: ${NUQ_USER:-nuq_user}
       POSTGRES_PASSWORD: ${NUQ_PASSWORD:-nuq_password}
       POSTGRES_DB: ${NUQ_DB:-nuq_db}
     volumes:
-      - ${RAMDISK_DIR:-/mnt/ramdisk}/firecrawl/postgres:/var/lib/postgresql/data
+      - ${WORKSPACE_DIR:-/srv/data/workspace}/firecrawl/postgres:/var/lib/postgresql/data
     networks:
       - shared_net
     logging:
@@ -217,10 +217,10 @@ services:
     container_name: compute_firecrawl_redis
     restart: unless-stopped
     depends_on:
-      tools-ramdisk-init:
+      tools-workspace-init:
         condition: service_healthy
     volumes:
-      - ${RAMDISK_DIR:-/mnt/ramdisk}/firecrawl/redis:/data
+      - ${WORKSPACE_DIR:-/srv/data/workspace}/firecrawl/redis:/data
     networks:
       - shared_net
     logging:
@@ -234,7 +234,7 @@ services:
     container_name: compute_firecrawl_rabbitmq
     restart: unless-stopped
     depends_on:
-      tools-ramdisk-init:
+      tools-workspace-init:
         condition: service_healthy
     environment:
       RABBITMQ_DEFAULT_USER: ${NUQ_USER:-nuq_user}
@@ -242,7 +242,7 @@ services:
       RABBITMQ_NODENAME: rabbit@localhost
       RABBITMQ_ERLANG_COOKIE: ${RABBITMQ_ERLANG_COOKIE:-homelab_firecrawl_rabbit_cookie}
     volumes:
-      - ${RAMDISK_DIR:-/mnt/ramdisk}/firecrawl/rabbitmq:/var/lib/rabbitmq
+      - ${WORKSPACE_DIR:-/srv/data/workspace}/firecrawl/rabbitmq:/var/lib/rabbitmq
     networks:
       - shared_net
     logging:
@@ -340,10 +340,10 @@ services:
     container_name: compute_speaches
     restart: unless-stopped
     depends_on:
-      tools-ramdisk-init:
+      tools-workspace-init:
         condition: service_healthy
     volumes:
-      - ${RAMDISK_DIR:-/mnt/ramdisk}/speaches:/home/speaches/.cache
+      - ${WORKSPACE_DIR:-/srv/data/workspace}/speaches:/home/speaches/.cache
     environment:
       - API_KEY=${SPEACHES_API_KEY:-}
       - WHISPER__MODEL=Systran/faster-whisper-large-v3
@@ -382,11 +382,11 @@ services:
     container_name: compute_embeddings
     restart: unless-stopped
     depends_on:
-      tools-ramdisk-init:
+      tools-workspace-init:
         condition: service_healthy
     command: ["--model-id", "BAAI/bge-m3", "--auto-truncate", "--api-key", "${TEI_API_KEY:-}"]
     volumes:
-      - ${RAMDISK_DIR:-/mnt/ramdisk}/tei-embed:/data
+      - ${WORKSPACE_DIR:-/srv/data/workspace}/tei-embed:/data
     environment:
       - OMP_NUM_THREADS=${OMP_NUM_THREADS:-12}
       - RAYON_NUM_THREADS=${RAYON_NUM_THREADS:-12}
@@ -410,11 +410,11 @@ services:
     container_name: compute_reranker
     restart: unless-stopped
     depends_on:
-      tools-ramdisk-init:
+      tools-workspace-init:
         condition: service_healthy
     command: ["--model-id", "BAAI/bge-reranker-v2-m3", "--auto-truncate", "--api-key", "${TEI_API_KEY:-}"]
     volumes:
-      - ${RAMDISK_DIR:-/mnt/ramdisk}/tei-rerank:/data
+      - ${WORKSPACE_DIR:-/srv/data/workspace}/tei-rerank:/data
     environment:
       - OMP_NUM_THREADS=${OMP_NUM_THREADS:-12}
       - RAYON_NUM_THREADS=${RAYON_NUM_THREADS:-12}
