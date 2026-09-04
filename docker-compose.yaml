@@ -1,10 +1,10 @@
 services:
   # ========================================================
-  # WORKSPACE STORAGE INITIALIZER (zap-srv & oci01-flex)
+  # WORKSPACE STORAGE INITIALIZER & HEALTH GUARD
   # ========================================================
   tools-workspace-init:
     image: alpine:latest
-    container_name: compute_tools_workspace_init
+    container_name: compute_tools_workspace_init_${NODE_NAME:-tools}
     user: "0:0"
     restart: unless-stopped
     network_mode: none
@@ -15,18 +15,26 @@ services:
       - |
         echo ">>> [Tools Workspace Init] Preparing service directories in ${WORKSPACE_DIR:-/srv/data/workspace}..."
         mkdir -p /workspace/ollama /workspace/onlyoffice/data /workspace/onlyoffice/log /workspace/searxng /workspace/firecrawl/postgres /workspace/firecrawl/redis /workspace/firecrawl/rabbitmq /workspace/speaches /workspace/tei-embed /workspace/tei-rerank
-        chmod -R 777 /workspace
-        echo "use_default_settings: true" > /workspace/searxng/settings.yml
-        echo "search:" >> /workspace/searxng/settings.yml
-        echo "  autocomplete: google" >> /workspace/searxng/settings.yml
-        echo "  formats: [html, json]" >> /workspace/searxng/settings.yml
-        echo "server:" >> /workspace/searxng/settings.yml
-        echo "  port: 8080" >> /workspace/searxng/settings.yml
-        echo "  bind_address: 0.0.0.0" >> /workspace/searxng/settings.yml
-        echo "  secret_key: $${SEARXNG_SECRET:-e3a1f89c42b07e5d8a9f0c1b2d3e4f5a}" >> /workspace/searxng/settings.yml
-        echo "  limiter: false" >> /workspace/searxng/settings.yml
-        echo "  image_proxy: true" >> /workspace/searxng/settings.yml
-        chmod 666 /workspace/searxng/settings.yml
+        chmod -R 777 /workspace/ollama /workspace/onlyoffice /workspace/searxng /workspace/speaches /workspace/tei-embed /workspace/tei-rerank /workspace/firecrawl/redis /workspace/firecrawl/rabbitmq
+        chmod 700 /workspace/firecrawl/postgres
+        if [ ! -f /workspace/searxng/settings.yml ]; then
+          echo ">>> [Tools Workspace Init] Generating initial SearXNG configuration..."
+          cat << 'EOF' > /workspace/searxng/settings.yml
+        use_default_settings: true
+        search:
+          autocomplete: google
+          formats:
+            - html
+            - json
+        server:
+          port: 8080
+          bind_address: 0.0.0.0
+          secret_key: "${SEARXNG_SECRET}"
+          limiter: false
+          image_proxy: true
+        EOF
+          chmod 666 /workspace/searxng/settings.yml
+        fi
         echo ">>> [Tools Workspace Init] Storage initialization complete. Guard active."
         sleep infinity
     healthcheck:
@@ -37,11 +45,11 @@ services:
       start_period: 5s
 
   # ========================================================
-  # OLLAMA (Local AI Vision & Chat Engine in RAM)
+  # OLLAMA (Local AI Vision & Chat Engine)
   # ========================================================
   ollama:
     image: ollama/ollama:latest
-    container_name: compute_ollama
+    container_name: compute_ollama_${NODE_NAME:-tools}
     restart: unless-stopped
     depends_on:
       tools-workspace-init:
@@ -54,11 +62,19 @@ services:
       - OLLAMA_MAX_LOADED_MODELS=${OLLAMA_MAX_LOADED_MODELS:-2}
       - OLLAMA_KEEP_ALIVE=${OLLAMA_KEEP_ALIVE:-24h}
       - OMP_NUM_THREADS=${OMP_NUM_THREADS:-12}
-    ports:
-      - "11434:11434"
+    expose:
+      - 11434
     networks:
-      - shared_net
-      - homelab_swarm_net
+      shared_net:
+        aliases:
+          - ollama
+          - compute_ollama
+          - ollama-${NODE_NAME:-tools}
+      homelab_swarm_net:
+        aliases:
+          - ollama
+          - compute_ollama
+          - ollama-${NODE_NAME:-tools}
     healthcheck:
       test: ["CMD", "ollama", "list"]
       interval: 15s
@@ -80,11 +96,11 @@ services:
         max-file: "3"
 
   # ========================================================
-  # OLLAMA BOOTSTRAP (Auto-Pulls Models into RAM on Boot)
+  # OLLAMA BOOTSTRAP (Auto-Pulls Configured Models on Boot)
   # ========================================================
   ollama-init:
     image: alpine:latest
-    container_name: compute_ollama_init
+    container_name: compute_ollama_init_${NODE_NAME:-tools}
     restart: "no"
     depends_on:
       ollama:
@@ -100,18 +116,18 @@ services:
         echo ">>> [Ollama Init] Checking configured models: $${OLLAMA_INIT_MODELS}..."
         IFS=','
         for model in $${OLLAMA_INIT_MODELS}; do
-          echo ">>> [Ollama Init] Ensuring model '$$model' is loaded into RAM..."
-          curl -s -X POST http://compute_ollama:11434/api/pull -d "{\"name\": \"$$model\", \"stream\": false}" >/dev/null 2>&1 || true
-          echo ">>> [Ollama Init] Model '$$model' verified in RAM."
+          echo ">>> [Ollama Init] Ensuring model '$$model' is loaded..."
+          curl -s -X POST http://ollama:11434/api/pull -d "{\"name\": \"$$model\", \"stream\": false}" >/dev/null 2>&1 || true
+          echo ">>> [Ollama Init] Model '$$model' verified."
         done
-        echo ">>> [Ollama Init] All required AI models are warm and ready in RAM."
+        echo ">>> [Ollama Init] All required AI models are warm and ready."
 
   # ========================================================
   # ONLYOFFICE DOCUMENT SERVER (Single-User Lean Edition)
   # ========================================================
   onlyoffice:
     image: onlyoffice/documentserver:latest
-    container_name: compute_onlyoffice
+    container_name: compute_onlyoffice_${NODE_NAME:-tools}
     restart: unless-stopped
     depends_on:
       tools-workspace-init:
@@ -121,17 +137,25 @@ services:
       - ${WORKSPACE_DIR:-/srv/data/workspace}/onlyoffice/log:/var/log/onlyoffice
     environment:
       - JWT_ENABLED=true
-      - JWT_SECRET=${ONLYOFFICE_JWT_SECRET:-4289cb7b0722e1b1dd47d7c6fb5b08e5c46e3ea40fa3d9cb910901e18d6e3260}
+      - JWT_SECRET=${ONLYOFFICE_JWT_SECRET:-}
       - JWT_HEADER=Authorization
       - JWT_IN_BODY=true
       - USE_UNAUTHORIZED_STORAGE=true
       - WOPI_ENABLED=false
       - PRODUCT_NAME=OnlyOffice Homelab
-    ports:
-      - "8080:80"
+    expose:
+      - 80
     networks:
-      - shared_net
-      - homelab_swarm_net
+      shared_net:
+        aliases:
+          - onlyoffice
+          - compute_onlyoffice
+          - onlyoffice-${NODE_NAME:-tools}
+      homelab_swarm_net:
+        aliases:
+          - onlyoffice
+          - compute_onlyoffice
+          - onlyoffice-${NODE_NAME:-tools}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1/healthcheck"]
       interval: 30s
@@ -153,11 +177,11 @@ services:
         max-file: "3"
 
   # ========================================================
-  # SEARXNG (Private Metasearch Engine in RAM)
+  # SEARXNG (Private Metasearch Engine)
   # ========================================================
   searxng:
     image: searxng/searxng:latest
-    container_name: compute_searxng
+    container_name: compute_searxng_${NODE_NAME:-tools}
     restart: unless-stopped
     depends_on:
       tools-workspace-init:
@@ -165,15 +189,23 @@ services:
     volumes:
       - ${WORKSPACE_DIR:-/srv/data/workspace}/searxng:/etc/searxng
     environment:
-      - SEARXNG_BASE_URL=http://compute_searxng:8080/
-      - SEARXNG_SECRET=${SEARXNG_SECRET:-e3a1f89c42b07e5d8a9f0c1b2d3e4f5a}
+      - SEARXNG_BASE_URL=http://searxng:8080/
+      - SEARXNG_SECRET=${SEARXNG_SECRET:-}
       - UWSGI_WORKERS=4
       - UWSGI_THREADS=4
-    ports:
-      - "8085:8080"
+    expose:
+      - 8080
     networks:
-      - shared_net
-      - homelab_swarm_net
+      shared_net:
+        aliases:
+          - searxng
+          - compute_searxng
+          - searxng-${NODE_NAME:-tools}
+      homelab_swarm_net:
+        aliases:
+          - searxng
+          - compute_searxng
+          - searxng-${NODE_NAME:-tools}
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.searxng.rule=Host(`search.${ROOT_DOMAIN:-example.com}`, `searxng.${ROOT_DOMAIN:-example.com}`)"
@@ -189,23 +221,26 @@ services:
         max-file: "3"
 
   # ========================================================
-  # FIRECRAWL STACK (Web Scraper & Crawler in RAM)
+  # FIRECRAWL STACK (Web Scraper & Crawler Services)
   # ========================================================
   firecrawl-postgres:
     image: postgres:16-alpine
-    container_name: compute_firecrawl_postgres
+    container_name: compute_firecrawl_postgres_${NODE_NAME:-tools}
     restart: unless-stopped
     depends_on:
       tools-workspace-init:
         condition: service_healthy
     environment:
       POSTGRES_USER: ${NUQ_USER:-nuq_user}
-      POSTGRES_PASSWORD: ${NUQ_PASSWORD:-nuq_password}
+      POSTGRES_PASSWORD: ${NUQ_PASSWORD:-}
       POSTGRES_DB: ${NUQ_DB:-nuq_db}
     volumes:
       - ${WORKSPACE_DIR:-/srv/data/workspace}/firecrawl/postgres:/var/lib/postgresql/data
     networks:
-      - shared_net
+      shared_net:
+        aliases:
+          - firecrawl-postgres
+          - compute_firecrawl_postgres
     logging:
       driver: "json-file"
       options:
@@ -214,7 +249,7 @@ services:
 
   firecrawl-redis:
     image: redis:alpine
-    container_name: compute_firecrawl_redis
+    container_name: compute_firecrawl_redis_${NODE_NAME:-tools}
     restart: unless-stopped
     depends_on:
       tools-workspace-init:
@@ -222,7 +257,10 @@ services:
     volumes:
       - ${WORKSPACE_DIR:-/srv/data/workspace}/firecrawl/redis:/data
     networks:
-      - shared_net
+      shared_net:
+        aliases:
+          - firecrawl-redis
+          - compute_firecrawl_redis
     logging:
       driver: "json-file"
       options:
@@ -231,20 +269,23 @@ services:
 
   firecrawl-rabbitmq:
     image: rabbitmq:3-management-alpine
-    container_name: compute_firecrawl_rabbitmq
+    container_name: compute_firecrawl_rabbitmq_${NODE_NAME:-tools}
     restart: unless-stopped
     depends_on:
       tools-workspace-init:
         condition: service_healthy
     environment:
       RABBITMQ_DEFAULT_USER: ${NUQ_USER:-nuq_user}
-      RABBITMQ_DEFAULT_PASS: ${NUQ_PASSWORD:-nuq_password}
+      RABBITMQ_DEFAULT_PASS: ${NUQ_PASSWORD:-}
       RABBITMQ_NODENAME: rabbit@localhost
-      RABBITMQ_ERLANG_COOKIE: ${RABBITMQ_ERLANG_COOKIE:-homelab_firecrawl_rabbit_cookie}
+      RABBITMQ_ERLANG_COOKIE: ${RABBITMQ_ERLANG_COOKIE:-}
     volumes:
       - ${WORKSPACE_DIR:-/srv/data/workspace}/firecrawl/rabbitmq:/var/lib/rabbitmq
     networks:
-      - shared_net
+      shared_net:
+        aliases:
+          - firecrawl-rabbitmq
+          - compute_firecrawl_rabbitmq
     logging:
       driver: "json-file"
       options:
@@ -253,12 +294,15 @@ services:
 
   firecrawl-playwright:
     image: ghcr.io/firecrawl/playwright-service:latest
-    container_name: compute_firecrawl_playwright
+    container_name: compute_firecrawl_playwright_${NODE_NAME:-tools}
     restart: unless-stopped
     environment:
       - PORT=3000
     networks:
-      - shared_net
+      shared_net:
+        aliases:
+          - firecrawl-playwright
+          - compute_firecrawl_playwright
     logging:
       driver: "json-file"
       options:
@@ -267,29 +311,37 @@ services:
 
   firecrawl-api:
     image: ghcr.io/firecrawl/firecrawl:latest
-    container_name: compute_firecrawl_api
+    container_name: compute_firecrawl_api_${NODE_NAME:-tools}
     restart: unless-stopped
     command: ["node", "dist/src/index.js"]
-    ports:
-      - "3038:3036"
+    expose:
+      - 3036
     environment:
       - PORT=3036
       - HOST=0.0.0.0
-      - REDIS_URL=redis://compute_firecrawl_redis:6379
-      - REDIS_RATE_LIMIT_URL=redis://compute_firecrawl_redis:6379
-      - PLAYWRIGHT_MICROSERVICE_URL=http://compute_firecrawl_playwright:3000/scrape
+      - REDIS_URL=redis://firecrawl-redis:6379
+      - REDIS_RATE_LIMIT_URL=redis://firecrawl-redis:6379
+      - PLAYWRIGHT_MICROSERVICE_URL=http://firecrawl-playwright:3000/scrape
       - USE_PLAYWRIGHT=true
-      - FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY:-firecrawl_secret_api_key_12345}
-      - NUQ_DATABASE_URL=postgresql://${NUQ_USER:-nuq_user}:${NUQ_PASSWORD:-nuq_password}@compute_firecrawl_postgres:5432/${NUQ_DB:-nuq_db}
-      - NUQ_RABBITMQ_URL=amqp://${NUQ_USER:-nuq_user}:${NUQ_PASSWORD:-nuq_password}@compute_firecrawl_rabbitmq:5672/
+      - FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY:-}
+      - NUQ_DATABASE_URL=postgresql://${NUQ_USER:-nuq_user}:${NUQ_PASSWORD:-}@firecrawl-postgres:5432/${NUQ_DB:-nuq_db}
+      - NUQ_RABBITMQ_URL=amqp://${NUQ_USER:-nuq_user}:${NUQ_PASSWORD:-}@firecrawl-rabbitmq:5672/
     depends_on:
       - firecrawl-redis
       - firecrawl-playwright
       - firecrawl-postgres
       - firecrawl-rabbitmq
     networks:
-      - shared_net
-      - homelab_swarm_net
+      shared_net:
+        aliases:
+          - firecrawl-api
+          - compute_firecrawl_api
+          - firecrawl-api-${NODE_NAME:-tools}
+      homelab_swarm_net:
+        aliases:
+          - firecrawl-api
+          - compute_firecrawl_api
+          - firecrawl-api-${NODE_NAME:-tools}
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.firecrawl.rule=Host(`scraper.${ROOT_DOMAIN:-example.com}`, `firecrawl.${ROOT_DOMAIN:-example.com}`)"
@@ -306,17 +358,17 @@ services:
 
   firecrawl-worker:
     image: ghcr.io/firecrawl/firecrawl:latest
-    container_name: compute_firecrawl_worker
+    container_name: compute_firecrawl_worker_${NODE_NAME:-tools}
     restart: unless-stopped
     command: ["node", "dist/src/services/queue-worker.js"]
     environment:
-      - REDIS_URL=redis://compute_firecrawl_redis:6379
-      - REDIS_RATE_LIMIT_URL=redis://compute_firecrawl_redis:6379
-      - PLAYWRIGHT_MICROSERVICE_URL=http://compute_firecrawl_playwright:3000/scrape
+      - REDIS_URL=redis://firecrawl-redis:6379
+      - REDIS_RATE_LIMIT_URL=redis://firecrawl-redis:6379
+      - PLAYWRIGHT_MICROSERVICE_URL=http://firecrawl-playwright:3000/scrape
       - USE_PLAYWRIGHT=true
       - NUM_WORKERS_PER_QUEUE=2
-      - NUQ_DATABASE_URL=postgresql://${NUQ_USER:-nuq_user}:${NUQ_PASSWORD:-nuq_password}@compute_firecrawl_postgres:5432/${NUQ_DB:-nuq_db}
-      - NUQ_RABBITMQ_URL=amqp://${NUQ_USER:-nuq_user}:${NUQ_PASSWORD:-nuq_password}@compute_firecrawl_rabbitmq:5672/
+      - NUQ_DATABASE_URL=postgresql://${NUQ_USER:-nuq_user}:${NUQ_PASSWORD:-}@firecrawl-postgres:5432/${NUQ_DB:-nuq_db}
+      - NUQ_RABBITMQ_URL=amqp://${NUQ_USER:-nuq_user}:${NUQ_PASSWORD:-}@firecrawl-rabbitmq:5672/
     depends_on:
       - firecrawl-redis
       - firecrawl-playwright
@@ -332,12 +384,12 @@ services:
         max-file: "3"
 
   # ========================================================
-  # SPEACHES (Unified OpenAI-Compatible STT & TTS in RAM)
-  # Faster-Whisper + Kokoro-82M on 23 Cores
+  # SPEACHES (OpenAI-Compatible STT & TTS)
+  # Faster-Whisper + Kokoro-82M
   # ========================================================
   speaches:
     image: ghcr.io/speaches-ai/speaches:latest-cpu
-    container_name: compute_speaches
+    container_name: compute_speaches_${NODE_NAME:-tools}
     restart: unless-stopped
     depends_on:
       tools-workspace-init:
@@ -354,11 +406,19 @@ services:
       - LOOPBACK_HOST_URL=http://localhost:8000
       - OMP_NUM_THREADS=${OMP_NUM_THREADS:-12}
       - RAYON_NUM_THREADS=${RAYON_NUM_THREADS:-12}
-    ports:
-      - "8086:8000"
+    expose:
+      - 8000
     networks:
-      - shared_net
-      - homelab_swarm_net
+      shared_net:
+        aliases:
+          - speaches
+          - compute_speaches
+          - speaches-${NODE_NAME:-tools}
+      homelab_swarm_net:
+        aliases:
+          - speaches
+          - compute_speaches
+          - speaches-${NODE_NAME:-tools}
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.speaches.rule=Host(`audio.${ROOT_DOMAIN:-example.com}`, `voice.${ROOT_DOMAIN:-example.com}`, `speaches.${ROOT_DOMAIN:-example.com}`)"
@@ -375,26 +435,45 @@ services:
 
   # ========================================================
   # HUGGING FACE TEI (Text Embeddings Inference)
-  # Ultra-fast Rust engine for Qwen/Qwen3-Embedding-0.6B
+  # High-throughput Rust engine for BAAI/bge-m3
   # ========================================================
   embeddings:
     image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.6
-    container_name: compute_embeddings
+    container_name: compute_embeddings_${NODE_NAME:-tools}
     restart: unless-stopped
     depends_on:
       tools-workspace-init:
         condition: service_healthy
-    command: ["--model-id", "BAAI/bge-m3", "--auto-truncate", "--api-key", "${TEI_API_KEY:-}"]
+    command: ["--model-id", "BAAI/bge-m3", "--auto-truncate"]
     volumes:
       - ${WORKSPACE_DIR:-/srv/data/workspace}/tei-embed:/data
     environment:
+      - API_KEY=${TEI_API_KEY:-}
       - OMP_NUM_THREADS=${OMP_NUM_THREADS:-12}
       - RAYON_NUM_THREADS=${RAYON_NUM_THREADS:-12}
-    ports:
-      - "8089:80"
+    expose:
+      - 80
     networks:
-      - shared_net
-      - homelab_swarm_net
+      shared_net:
+        aliases:
+          - embeddings
+          - compute_embeddings
+          - tei-embed
+          - embeddings-${NODE_NAME:-tools}
+      homelab_swarm_net:
+        aliases:
+          - embeddings
+          - compute_embeddings
+          - tei-embed
+          - embeddings-${NODE_NAME:-tools}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.embeddings.rule=Host(`embeddings.${ROOT_DOMAIN:-example.com}`)"
+      - "traefik.http.routers.embeddings.entrypoints=websecure"
+      - "traefik.http.routers.embeddings.tls=true"
+      - "traefik.http.routers.embeddings.middlewares=app-fail2ban@file,security-headers@file"
+      - "traefik.http.services.embeddings.loadbalancer.server.port=80"
+      - "traefik.docker.network=${SWARM_NETWORK:-homelab_swarm_net}"
     logging:
       driver: "json-file"
       options:
@@ -403,26 +482,45 @@ services:
 
   # ========================================================
   # HUGGING FACE TEI (Cross-Encoder Reranker Inference)
-  # Ultra-fast Rust engine for BAAI/bge-reranker-v2-m3
+  # High-throughput Rust engine for BAAI/bge-reranker-v2-m3
   # ========================================================
   reranker:
     image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.6
-    container_name: compute_reranker
+    container_name: compute_reranker_${NODE_NAME:-tools}
     restart: unless-stopped
     depends_on:
       tools-workspace-init:
         condition: service_healthy
-    command: ["--model-id", "BAAI/bge-reranker-v2-m3", "--auto-truncate", "--api-key", "${TEI_API_KEY:-}"]
+    command: ["--model-id", "BAAI/bge-reranker-v2-m3", "--auto-truncate"]
     volumes:
       - ${WORKSPACE_DIR:-/srv/data/workspace}/tei-rerank:/data
     environment:
+      - API_KEY=${TEI_API_KEY:-}
       - OMP_NUM_THREADS=${OMP_NUM_THREADS:-12}
       - RAYON_NUM_THREADS=${RAYON_NUM_THREADS:-12}
-    ports:
-      - "8087:80"
+    expose:
+      - 80
     networks:
-      - shared_net
-      - homelab_swarm_net
+      shared_net:
+        aliases:
+          - reranker
+          - compute_reranker
+          - tei-rerank
+          - reranker-${NODE_NAME:-tools}
+      homelab_swarm_net:
+        aliases:
+          - reranker
+          - compute_reranker
+          - tei-rerank
+          - reranker-${NODE_NAME:-tools}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.reranker.rule=Host(`reranker.${ROOT_DOMAIN:-example.com}`)"
+      - "traefik.http.routers.reranker.entrypoints=websecure"
+      - "traefik.http.routers.reranker.tls=true"
+      - "traefik.http.routers.reranker.middlewares=app-fail2ban@file,security-headers@file"
+      - "traefik.http.services.reranker.loadbalancer.server.port=80"
+      - "traefik.docker.network=${SWARM_NETWORK:-homelab_swarm_net}"
     logging:
       driver: "json-file"
       options:

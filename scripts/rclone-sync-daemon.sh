@@ -1,7 +1,7 @@
 #!/bin/sh
 # ==============================================================================
-# HOMELAB-SRV-COMPUTE: RCLONE SYNC DAEMON
-# Handles boot-time workspace pull, 5-minute periodic sync, and graceful exit flush
+# HOMELAB AI TOOLS: RCLONE WORKSPACE SYNC DAEMON
+# Handles boot-time workspace pull, periodic sync, and graceful exit flush
 # ==============================================================================
 set -e
 
@@ -40,7 +40,7 @@ sync_and_exit() {
 trap 'sync_and_exit' SIGTERM SIGINT
 
 # ------------------------------------------------------------------------------
-# 1. BOOT-TIME SYNC (Pull remote workspace into RAM if remote has data)
+# 1. BOOT-TIME SYNC (Pull remote backup into local workspace if remote has data)
 # ------------------------------------------------------------------------------
 echo ">>> [Rclone Daemon] Checking remote workspace status..."
 if rclone lsf "${REMOTE_TARGET}" >/dev/null 2>&1; then
