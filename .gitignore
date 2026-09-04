@@ -1,0 +1,10 @@
+# Secrets and local environment
+.env
+*.env.local
+
+# Persistent local data & cache
+data/
+*.log
+
+# System files
+.DS_Store
