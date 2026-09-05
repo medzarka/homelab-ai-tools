@@ -430,6 +430,7 @@ services:
       - -c
       - |
         sed -i 's/Bearer {config.api_key}/Bearer {config.api_key.get_secret_value()}/g' /home/ubuntu/speaches/src/speaches/ui/utils.py 2>/dev/null || true
+        sed -i 's/openai_client.models.list()/openai_client.models.list(extra_query={"task": "automatic-speech-recognition"})/g' /home/ubuntu/speaches/src/speaches/ui/tabs/stt.py 2>/dev/null || true
         exec uvicorn --factory speaches.main:create_app
     volumes:
       - ${WORKSPACE_DIR:-/srv/data/workspace}/speaches:/home/ubuntu/.cache
