@@ -14,9 +14,10 @@ services:
     command:
       - |
         echo ">>> [Tools Workspace Init] Preparing service directories in ${WORKSPACE_DIR:-/srv/data/workspace}..."
-        mkdir -p /workspace/ollama /workspace/onlyoffice/data /workspace/onlyoffice/log /workspace/searxng /workspace/firecrawl/postgres /workspace/firecrawl/redis /workspace/firecrawl/rabbitmq /workspace/speaches /workspace/tei-embed /workspace/tei-rerank
+        mkdir -p /workspace/ollama /workspace/onlyoffice/data /workspace/onlyoffice/log /workspace/searxng /workspace/firecrawl/postgres /workspace/firecrawl/redis /workspace/firecrawl/rabbitmq/mnesia /workspace/speaches /workspace/tei-embed /workspace/tei-rerank
         chmod -R 777 /workspace/ollama /workspace/onlyoffice /workspace/searxng /workspace/speaches /workspace/tei-embed /workspace/tei-rerank /workspace/firecrawl/redis /workspace/firecrawl/rabbitmq
         chmod 700 /workspace/firecrawl/postgres
+        rm -f /workspace/firecrawl/rabbitmq/.erlang.cookie /workspace/firecrawl/rabbitmq/mnesia/.erlang.cookie 2>/dev/null || true
         if [ ! -f /workspace/searxng/settings.yml ]; then
           echo ">>> [Tools Workspace Init] Generating initial SearXNG configuration..."
           cat << 'EOF' > /workspace/searxng/settings.yml
@@ -295,7 +296,7 @@ services:
       RABBITMQ_NODENAME: rabbit@firecrawl-rabbitmq
       RABBITMQ_ERLANG_COOKIE: ${RABBITMQ_ERLANG_COOKIE:-}
     volumes:
-      - ${WORKSPACE_DIR:-/srv/data/workspace}/firecrawl/rabbitmq:/var/lib/rabbitmq
+      - ${WORKSPACE_DIR:-/srv/data/workspace}/firecrawl/rabbitmq/mnesia:/var/lib/rabbitmq/mnesia
     networks:
       shared_net:
         aliases:
