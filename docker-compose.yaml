@@ -413,9 +413,12 @@ services:
       tools-workspace-init:
         condition: service_healthy
     volumes:
-      - ${WORKSPACE_DIR:-/srv/data/workspace}/speaches:/home/speaches/.cache
+      - ${WORKSPACE_DIR:-/srv/data/workspace}/speaches:/home/ubuntu/.cache
     environment:
       - API_KEY=${SPEACHES_API_KEY:-}
+      - HF_HOME=/home/ubuntu/.cache/huggingface
+      - CHAT_COMPLETION_BASE_URL=http://ollama:11434/v1
+      - CHAT_COMPLETION_API_KEY=${OLLAMA_API_KEY:-ollama}
       - WHISPER__MODEL=Systran/faster-whisper-large-v3
       - WHISPER__DEVICE=cpu
       - WHISPER__COMPUTE_TYPE=int8
