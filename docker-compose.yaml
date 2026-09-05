@@ -271,6 +271,7 @@ services:
   firecrawl-rabbitmq:
     image: rabbitmq:3-management-alpine
     container_name: compute_firecrawl_rabbitmq_${NODE_NAME:-tools}
+    hostname: firecrawl-rabbitmq
     restart: unless-stopped
     depends_on:
       tools-workspace-init:
@@ -278,7 +279,7 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: ${NUQ_USER:-nuq_user}
       RABBITMQ_DEFAULT_PASS: ${NUQ_PASSWORD:-}
-      RABBITMQ_NODENAME: rabbit@localhost
+      RABBITMQ_NODENAME: rabbit@firecrawl-rabbitmq
       RABBITMQ_ERLANG_COOKIE: ${RABBITMQ_ERLANG_COOKIE:-}
     volumes:
       - ${WORKSPACE_DIR:-/srv/data/workspace}/firecrawl/rabbitmq:/var/lib/rabbitmq
@@ -287,6 +288,12 @@ services:
         aliases:
           - firecrawl-rabbitmq
           - compute_firecrawl_rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     logging:
       driver: "json-file"
       options:
@@ -297,6 +304,8 @@ services:
     image: ghcr.io/firecrawl/playwright-service:latest
     container_name: compute_firecrawl_playwright_${NODE_NAME:-tools}
     restart: unless-stopped
+    shm_size: '2gb'
+    init: true
     environment:
       - PORT=3000
     networks:
@@ -328,10 +337,14 @@ services:
       - NUQ_DATABASE_URL=postgresql://${NUQ_USER:-nuq_user}:${NUQ_PASSWORD:-}@firecrawl-postgres:5432/${NUQ_DB:-nuq_db}
       - NUQ_RABBITMQ_URL=amqp://${NUQ_USER:-nuq_user}:${NUQ_PASSWORD:-}@firecrawl-rabbitmq:5672/
     depends_on:
-      - firecrawl-redis
-      - firecrawl-playwright
-      - firecrawl-postgres
-      - firecrawl-rabbitmq
+      firecrawl-redis:
+        condition: service_started
+      firecrawl-playwright:
+        condition: service_started
+      firecrawl-postgres:
+        condition: service_started
+      firecrawl-rabbitmq:
+        condition: service_healthy
     networks:
       shared_net:
         aliases:
@@ -371,10 +384,14 @@ services:
       - NUQ_DATABASE_URL=postgresql://${NUQ_USER:-nuq_user}:${NUQ_PASSWORD:-}@firecrawl-postgres:5432/${NUQ_DB:-nuq_db}
       - NUQ_RABBITMQ_URL=amqp://${NUQ_USER:-nuq_user}:${NUQ_PASSWORD:-}@firecrawl-rabbitmq:5672/
     depends_on:
-      - firecrawl-redis
-      - firecrawl-playwright
-      - firecrawl-postgres
-      - firecrawl-rabbitmq
+      firecrawl-redis:
+        condition: service_started
+      firecrawl-playwright:
+        condition: service_started
+      firecrawl-postgres:
+        condition: service_started
+      firecrawl-rabbitmq:
+        condition: service_healthy
     networks:
       - shared_net
       - homelab_swarm_net
