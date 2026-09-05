@@ -102,7 +102,7 @@ services:
   ollama-init:
     image: alpine:latest
     container_name: compute_ollama_init_${NODE_NAME:-tools}
-    restart: "no"
+    restart: unless-stopped
     depends_on:
       ollama:
         condition: service_healthy
@@ -121,7 +121,20 @@ services:
           curl -s -X POST http://ollama:11434/api/pull -d "{\"name\": \"$$model\", \"stream\": false}" >/dev/null 2>&1 || true
           echo ">>> [Ollama Init] Model '$$model' verified."
         done
-        echo ">>> [Ollama Init] All required AI models are warm and ready."
+        echo ">>> [Ollama Init] All required AI models are warm and ready. Sentry active."
+        touch /tmp/ready
+        exec sleep infinity
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/ready || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10m
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # ========================================================
   # ONLYOFFICE DOCUMENT SERVER (Single-User Lean Edition)
