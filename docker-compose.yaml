@@ -115,13 +115,31 @@ services:
     command:
       - |
         apk add --no-cache curl >/dev/null 2>&1
+        
+        echo ">>> [Ollama Init] Waiting for Ollama API to be ready..."
+        while ! curl -s http://ollama:11434/api/tags >/dev/null; do
+          echo ">>> [Ollama Init] API not ready, waiting 5 seconds..."
+          sleep 5
+        done
+
         echo ">>> [Ollama Init] Checking configured models: $${OLLAMA_INIT_MODELS}..."
         IFS=','
         for model in $${OLLAMA_INIT_MODELS}; do
           echo ">>> [Ollama Init] Ensuring model '$$model' is loaded..."
-          curl -s -X POST http://ollama:11434/api/pull -d "{\"name\": \"$$model\", \"stream\": false}" >/dev/null 2>&1 || true
-          echo ">>> [Ollama Init] Model '$$model' verified."
+          
+          while true; do
+            curl -s -X POST http://ollama:11434/api/pull -d "{\"name\": \"$$model\", \"stream\": false}" >/dev/null 2>&1
+            
+            if curl -s http://ollama:11434/api/tags | grep -q "$$model"; then
+              echo ">>> [Ollama Init] Model '$$model' verified."
+              break
+            else
+              echo ">>> [Ollama Init] Model '$$model' failed to pull. Retrying in 10 seconds..."
+              sleep 10
+            fi
+          done
         done
+        
         echo ">>> [Ollama Init] All required AI models are warm and ready. Sentry active."
         touch /tmp/ready
         exec sleep infinity
