@@ -242,7 +242,7 @@ services:
           - searxng-${NODE_NAME:-tools}
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.searxng.rule=Host(`search.${ROOT_DOMAIN:-example.com}`, `searxng.${ROOT_DOMAIN:-example.com}`)"
+      - "traefik.http.routers.searxng.rule=Host(`search.${ROOT_DOMAIN:-example.com}`) || Host(`searxng.${ROOT_DOMAIN:-example.com}`)"
       - "traefik.http.routers.searxng.entrypoints=websecure"
       - "traefik.http.routers.searxng.tls=true"
       - "traefik.http.routers.searxng.middlewares=app-fail2ban@file,security-headers@file"
@@ -391,7 +391,7 @@ services:
           - firecrawl-api-${NODE_NAME:-tools}
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.firecrawl.rule=Host(`scraper.${ROOT_DOMAIN:-example.com}`, `firecrawl.${ROOT_DOMAIN:-example.com}`)"
+      - "traefik.http.routers.firecrawl.rule=Host(`scraper.${ROOT_DOMAIN:-example.com}`) || Host(`firecrawl.${ROOT_DOMAIN:-example.com}`)"
       - "traefik.http.routers.firecrawl.entrypoints=websecure"
       - "traefik.http.routers.firecrawl.tls=true"
       - "traefik.http.routers.firecrawl.middlewares=app-fail2ban@file,security-headers@file"
@@ -482,7 +482,7 @@ services:
           - speaches-${NODE_NAME:-tools}
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.speaches.rule=Host(`audio.${ROOT_DOMAIN:-example.com}`, `voice.${ROOT_DOMAIN:-example.com}`, `speaches.${ROOT_DOMAIN:-example.com}`)"
+      - "traefik.http.routers.speaches.rule=Host(`audio.${ROOT_DOMAIN:-example.com}`) || Host(`voice.${ROOT_DOMAIN:-example.com}`) || Host(`speaches.${ROOT_DOMAIN:-example.com}`)"
       - "traefik.http.routers.speaches.entrypoints=websecure"
       - "traefik.http.routers.speaches.tls=true"
       - "traefik.http.routers.speaches.middlewares=app-fail2ban@file,security-headers@file"
