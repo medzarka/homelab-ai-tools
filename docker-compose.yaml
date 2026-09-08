@@ -13,6 +13,8 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
+        echo ">>> [Tools Workspace Init] Delaying boot by 15s to allow Swarm networks to initialize..."
+        sleep 15
         echo ">>> [Tools Workspace Init] Preparing service directories in ${WORKSPACE_DIR:-/srv/data/workspace}..."
         mkdir -p /workspace/ollama /workspace/onlyoffice/data /workspace/onlyoffice/log /workspace/searxng /workspace/firecrawl/postgres /workspace/firecrawl/redis /workspace/firecrawl/rabbitmq/mnesia /workspace/speaches /workspace/tei-embed /workspace/tei-rerank
         chmod -R 777 /workspace/ollama /workspace/onlyoffice /workspace/searxng /workspace/speaches /workspace/tei-embed /workspace/tei-rerank /workspace/firecrawl/redis /workspace/firecrawl/rabbitmq
@@ -351,6 +353,9 @@ services:
     restart: unless-stopped
     shm_size: '2gb'
     init: true
+    depends_on:
+      tools-workspace-init:
+        condition: service_healthy
     environment:
       - PORT=3000
     networks:
